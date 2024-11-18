@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from glob import glob
 
-def analyze_nrv2x_results(base_dir='mcsimTrials'):
+def analyze_nrv2x_results(base_dir='/home/faizal/mcsimTrials2'):
     """
     Analyze NR-V2X simulation results from multiple trials.
     """
@@ -23,18 +23,21 @@ def analyze_nrv2x_results(base_dir='mcsimTrials'):
     for trial_dir in trial_dirs:
         # Process each density
         for rho in [100, 200, 300]:
-            # Find the PRR file for this density
-            prr_file = glob(os.path.join(trial_dir, f'NRV2X_10MHz_rho{rho}', 
-                                       'packet_reception_ratio_*_5G.xls'))
-            
-            if prr_file:  # If file exists
-                try:
-                    # Load the data and get the mean PRR (last column)
-                    data = np.loadtxt(prr_file[0])
-                    mean_prr = np.mean(data[:, -1])
-                    results[rho].append(mean_prr)
-                except Exception as e:
-                    print(f"Error processing {prr_file[0]}: {e}")
+            prr_file = glob(os.path.join(trial_dir, f'NRV2X_20MHz_rho{rho}', 
+                                        'packet_reception_ratio_*_5G.xls'))
+            if not prr_file:
+                print(f"No PRR file found for rho = {rho} in {trial_dir}")
+                continue
+
+            try:
+                data = np.loadtxt(prr_file[0])
+                if data.size == 0:
+                    print(f"File {prr_file[0]} is empty.")
+                    continue
+                mean_prr = np.mean(data[:, -1])
+                results[rho].append(mean_prr)
+            except Exception as e:
+                print(f"Error processing {prr_file[0]}: {e}")
     
     # Convert results to numpy arrays
     for rho in results:

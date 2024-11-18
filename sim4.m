@@ -3,40 +3,38 @@ clear        % Reset variables
 clc          % Clear the command window
 
 % Parameters
-packetSize = 1000;         % 1000B packet size
-nTransm = 1;               % Number of transmissions per packet
-sizeSubchannel = 10;       % Number of Resource Blocks for each subchannel
-Raw = [50, 150, 300];      % Range of Awareness for evaluation of metrics
-SCS = 15;                  % Subcarrier spacing [kHz]
-pKeep = rand(1) * 0.4 + 0.2;  % Random keep probability between 0.2 and 0.6
-periodicity = 0.1;         % Periodic generation (every 100 ms)
-sensingThreshold = -126;   % Threshold to detect resources as busy
-roadLength = 1000;         % Length of the road [m]
+packetSize = 500;          % Packet size in bytes
+nTransm = 1;                % Number of transmissions per packet
+sizeSubchannel = 10;        % Number of Resource Blocks for each subchannel
+Raw = [50, 150, 300];       % Range of Awareness for evaluation of metrics
+speed = 90;                 % Average speed [km/h]
+speedStDev = 30;            % Speed standard deviation
+maxSpeedVar = 20;           % Maximum speed variation
+SCS = 15;                   % Subcarrier spacing [kHz]
+pKeep = 0.4;                % Keep probability for resource re-selection
+periodicity = 0.1;          % Generation interval (every 100 ms)
+sensingThreshold = -126;    % Threshold to detect resources as busy
+roadLength = 1000;          % Length of the road [m]
 configFile = 'Highway3GPP.cfg';
 
-% Enhanced speed parameters for more variation
-speed = 90;                % Average speed [km/h]
-speedStDev = 40;          % Increased standard deviation of speed
-maxSpeedVar = 20;         % Maximum speed variation during simulation
-
-% Channel impairment parameters
-shadowingStdDev = 8;      % Shadow fading standard deviation in dB
-fastFadingType = 'Rayleigh'; % Type of fast fading
-ricianKFactor = 3;        % Rician K-factor for LOS scenarios
-correlationDistance = 50;  % Correlation distance for shadowing
+% Channel parameters
+shadowingStdDev = 8;        % Shadowing standard deviation in dB
+fastFadingType = 'Rayleigh';% Fast fading type
+ricianKFactor = 3;          % Rician K-factor for LOS scenarios
+correlationDistance = 50;   % Correlation distance for shadowing
 
 % Monte Carlo parameters
-numTrials = 10000;        % Number of Monte Carlo trials
-rhoValues = [100, 200, 300];  % Vehicle densities
-BandMHz = 10;             % Bandwidth in MHz
+numTrials = 10000;          % Number of Monte Carlo trials
+rhoValues = [100, 200, 300]; % Vehicle densities
+BandMHz = 20;               % Bandwidth in MHz
 
 % Initialize results storage (using GPU array for acceleration)
 PRR_results = gpuArray.zeros(numTrials, length(rhoValues));
 
-% Set up parallel pool with 6 workers
+% Set up parallel pool with 6 workers (adjust if needed)
 parpool('local', 6);
 
-% Function to get random MCS based on channel conditions
+% Adaptive MCS function based on SINR
 function mcs = getAdaptiveMCS(sinr)
     if sinr > 20
         mcs = randi([10, 13]);  % Good channel conditions
@@ -67,13 +65,13 @@ end
 parfor trial = 1:numTrials
     fprintf('Running trial %d of %d\n', trial, numTrials);
     
-    % Initialize a temporary variable for results
+    % Initialize a temporary variable to store results for each density in this trial
     prr_trial = zeros(1, length(rhoValues));
     
     for rhoIdx = 1:length(rhoValues)
-        rho = rhoValues(rhoIdx);
+        rho = rhoValues(rhoIdx);  % Vehicle density
         
-        % Dynamic simulation time based on density
+        % Adjust simulation time based on density
         switch rho
             case 100
                 simTime = 10;
@@ -83,16 +81,19 @@ parfor trial = 1:numTrials
                 simTime = 3;
         end
         
-        % Calculate initial SINR for adaptive MCS (simplified)
-        initialSINR = 20 - (rho/100)*5 + randn()*3;  % Decreases with density
-        MCS = getAdaptiveMCS(initialSINR);
+        % Dynamic SINR calculation for adaptive MCS
+        distance = rand() * roadLength; % Randomized distance on the road
+        [pathLoss, shadowingLoss, fadingLoss] = calculateChannelLoss(distance, shadowingStdDev, fastFadingType);
+        sinr = 20 - pathLoss - shadowingLoss - fadingLoss;
+        MCS = getAdaptiveMCS(sinr); % Get MCS based on calculated SINR
         
-        % Generate output folder path
+        % Dynamic speed during simulation
+        currentSpeed = max(0, speed + speedStDev * randn() + maxSpeedVar * sin(2 * pi * rand()));
+
+        
+        % Output folder for storing results
         outputFolder = fullfile(pwd, 'mcsimTrials2', sprintf('MonteCarloTrial_%d', trial), ...
             sprintf('NRV2X_%dMHz_rho%d', BandMHz, rho));
-        
-        % Dynamic speed variation during simulation
-        currentSpeed = speed + speedStDev*randn() + maxSpeedVar*sin(2*pi*rand());
         
         % Run WiLabV2Xsim simulation with enhanced parameters
         WiLabV2Xsim(configFile, 'outputFolder', outputFolder, 'Technology', '5G-V2X', ...
@@ -100,16 +101,11 @@ parfor trial = 1:numTrials
             'simulationTime', simTime, 'rho', rho, 'probResKeep', pKeep, ...
             'BwMHz', BandMHz, 'vMean', currentSpeed, 'vStDev', speedStDev, ...
             'cv2xNumberOfReplicasMax', nTransm, 'allocationPeriod', periodicity, ...
-            'sizeSubchannel', sizeSubchannel, ...
-            'powerThresholdAutonomous', sensingThreshold, 'Raw', Raw, ...
-            'FixedPdensity', false, 'dcc_active', true, 'cbrActive', true, ...
-            'roadLength', roadLength, ...
-            'channelModel', struct('shadowingStdDev', shadowingStdDev, ...
-                                 'fastFadingType', fastFadingType, ...
-                                 'ricianKFactor', ricianKFactor, ...
-                                 'correlationDistance', correlationDistance));
+            'sizeSubchannel', sizeSubchannel, 'powerThresholdAutonomous', sensingThreshold, ...
+            'Raw', Raw, 'FixedPdensity', false, 'dcc_active', true, 'cbrActive', true, ...
+            'roadLength', roadLength, 'channelModel', 0);
         
-        % Process results
+        % Process results from output files
         prrFiles = dir(fullfile(outputFolder, 'packet_reception_ratio_*_5G.xls'));
         
         if ~isempty(prrFiles)
@@ -127,10 +123,11 @@ parfor trial = 1:numTrials
         end
     end
     
+    % Store trial results in PRR_results array
     PRR_results(trial, :) = prr_trial;
 end
 
-% Gather results from GPU back to CPU
+% Gather results from GPU to CPU
 PRR_results = gather(PRR_results);
 
 % Analysis and visualization
@@ -158,7 +155,7 @@ ylabel('Mean PRR ± Standard Deviation');
 title('Mean Packet Reception Ratio with Variation Across Monte Carlo Trials');
 grid on;
 
-% Plot distribution of PRR values
+% Plot distribution of PRR values using violin plot
 figure;
 violinplot(PRR_results, cellstr(string(rhoValues) + " vehicles/km"));
 xlabel('Vehicle Density');
