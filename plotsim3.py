@@ -5,11 +5,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from glob import glob
 
-path = 'mcstrials1k'
+path = 'mcstrials'
 os.makedirs(path, exist_ok=True)
 
 
-def analyze_nrv2x_results(base_dir='/home/faizal/Documents/work/WiLabV2Xsim/MCSTrials1k'):
+def analyze_nrv2x_results(base_dir='/home/faizal/mcsimTrials2'):
     """
     Analyze NR-V2X simulation results, including PRR, packet delay, and other metrics.
     """
