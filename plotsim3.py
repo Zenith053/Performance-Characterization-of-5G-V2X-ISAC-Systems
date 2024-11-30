@@ -5,150 +5,102 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from glob import glob
 
+path = 'mcstrials'
+os.makedirs(path, exist_ok=True)
+
+
 def analyze_nrv2x_results(base_dir='/home/faizal/mcsimTrials2'):
     """
-    Analyze NR-V2X simulation results from multiple trials.
+    Analyze NR-V2X simulation results, including PRR, packet delay, and other metrics.
     """
     # Initialize storage for results
-    results = {
-        100: [],  # For rho = 100
-        200: [],  # For rho = 200
-        300: []   # For rho = 300
+    metrics = {
+        'prr': {100: [], 200: [], 300: []},  # PRR for different densities
+        'delay': {100: [], 200: [], 300: []},  # Packet delay for different densities
+        'blind_spot': {100: [], 200: [], 300: []}  # Wireless blind spot stats
     }
-    
+
     # Find all Monte Carlo trial directories
     trial_dirs = glob(os.path.join(base_dir, 'MonteCarloTrial_*'))
-    
+
     # Process each trial
     for trial_dir in trial_dirs:
-        # Process each density
         for rho in [100, 200, 300]:
-            prr_file = glob(os.path.join(trial_dir, f'NRV2X_20MHz_rho{rho}', 
-                                        'packet_reception_ratio_*_5G.xls'))
-            if not prr_file:
-                print(f"No PRR file found for rho = {rho} in {trial_dir}")
-                continue
+            # PRR Files
+            prr_file = glob(os.path.join(trial_dir, f'NRV2X_20MHz_rho{rho}', 'packet_reception_ratio_*_5G.xls'))
+            if prr_file:
+                try:
+                    data = np.loadtxt(prr_file[0])
+                    if data.size > 0:
+                        mean_prr = np.mean(data[:, -1])
+                        metrics['prr'][rho].append(mean_prr)
+                except Exception as e:
+                    print(f"Error processing PRR file {prr_file[0]}: {e}")
 
-            try:
-                data = np.loadtxt(prr_file[0])
-                if data.size == 0:
-                    print(f"File {prr_file[0]} is empty.")
-                    continue
-                mean_prr = np.mean(data[:, -1])
-                results[rho].append(mean_prr)
-            except Exception as e:
-                print(f"Error processing {prr_file[0]}: {e}")
-    
+            # Packet Delay Files
+            delay_file = glob(os.path.join(trial_dir, f'NRV2X_20MHz_rho{rho}', 'packet_delay_*_5G.xls'))
+            if delay_file:
+                try:
+                    data = np.loadtxt(delay_file[0])
+                    if data.size > 0:
+                        mean_delay = np.mean(data[:, -1])
+                        metrics['delay'][rho].append(mean_delay)
+                except Exception as e:
+                    print(f"Error processing Delay file {delay_file[0]}: {e}")
+
+            # Wireless Blind Spot Files
+            blind_spot_file = glob(os.path.join(trial_dir, f'NRV2X_20MHz_rho{rho}', 'wireless_blind_spot_*_5G.xls'))
+            if blind_spot_file:
+                try:
+                    data = np.loadtxt(blind_spot_file[0])
+                    if data.size > 0:
+                        mean_blind_spot = np.mean(data[:, -1])
+                        metrics['blind_spot'][rho].append(mean_blind_spot)
+                except Exception as e:
+                    print(f"Error processing Blind Spot file {blind_spot_file[0]}: {e}")
+
     # Convert results to numpy arrays
-    for rho in results:
-        results[rho] = np.array(results[rho])
-    
-    return results
+    for metric in metrics:
+        for rho in metrics[metric]:
+            metrics[metric][rho] = np.array(metrics[metric][rho])
 
-def plot_results(results):
+    return metrics
+
+def plot_metrics(metrics):
     """
-    Create various plots to visualize the simulation results.
+    Generate plots for multiple metrics across vehicle densities.
     """
-    # Set up default plot style
-    plt.rcParams['figure.figsize'] = [10, 6]
-    plt.rcParams['figure.dpi'] = 100
-    plt.rcParams['axes.grid'] = True
-    plt.rcParams['grid.alpha'] = 0.3
-    
-    # 1. Box Plot of PRR Distribution
-    plt.figure()
-    bp = plt.boxplot([results[rho] for rho in sorted(results.keys())],
-                labels=[f'{rho} vehicles/km' for rho in sorted(results.keys())],
-                patch_artist=True)
-    
-    # Customize colors
-    for patch in bp['boxes']:
-        patch.set_facecolor('lightblue')
-        patch.set_alpha(0.7)
-    
-    plt.title('PRR Distribution by Vehicle Density', pad=20)
-    plt.ylabel('Packet Reception Ratio (PRR)')
-    plt.xlabel('Vehicle Density')
-    plt.grid(True, alpha=0.3)
-    plt.savefig('prr_boxplot.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # 2. Violin Plot
-    plt.figure()
-    vp = plt.violinplot([results[rho] for rho in sorted(results.keys())],
-                     showmeans=True, showmedians=True)
-    
-    # Customize violin plot colors
-    for pc in vp['bodies']:
-        pc.set_facecolor('lightblue')
-        pc.set_alpha(0.7)
-    
-    plt.title('PRR Distribution (Violin Plot) by Vehicle Density', pad=20)
-    plt.ylabel('Packet Reception Ratio (PRR)')
-    plt.xlabel('Vehicle Density')
-    plt.xticks(range(1, 4), [f'{rho} vehicles/km' for rho in sorted(results.keys())])
-    plt.grid(True, alpha=0.3)
-    plt.savefig('prr_violin.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # 3. Time Series Plot
-    plt.figure()
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']  # Different colors for each density
-    for i, rho in enumerate(sorted(results.keys())):
-        plt.plot(range(len(results[rho])), results[rho], 
-                label=f'{rho} vehicles/km', 
-                color=colors[i],
-                alpha=0.7)
-    plt.title('PRR Evolution Across Trials', pad=20)
-    plt.xlabel('Trial Number')
-    plt.ylabel('Packet Reception Ratio (PRR)')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.savefig('prr_evolution.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # 4. Histogram with KDE
-    plt.figure()
-    for i, rho in enumerate(sorted(results.keys())):
-        sns.histplot(data=results[rho], 
-                    label=f'{rho} vehicles/km',
-                    color=colors[i],
-                    alpha=0.3,
-                    kde=True)
-    plt.title('PRR Distribution by Vehicle Density', pad=20)
-    plt.xlabel('Packet Reception Ratio (PRR)')
-    plt.ylabel('Count')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.savefig('prr_distribution.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # Print summary statistics
-    print("\nSummary Statistics:")
-    print("=" * 50)
-    for rho in sorted(results.keys()):
-        print(f"\nVehicle Density: {rho} vehicles/km")
-        print(f"Number of trials: {len(results[rho])}")
-        print(f"Mean PRR: {np.mean(results[rho]):.4f}")
-        print(f"Median PRR: {np.median(results[rho]):.4f}")
-        print(f"Std Dev: {np.std(results[rho]):.4f}")
-        print(f"95% Confidence Interval: [{np.percentile(results[rho], 2.5):.4f}, "
-              f"{np.percentile(results[rho], 97.5):.4f}]")
+    for metric_name, data in metrics.items():
+        plt.figure()
+        for rho, values in data.items():
+            sns.histplot(values, kde=True, label=f'{rho} vehicles/km', alpha=0.5)
+        plt.title(f'{metric_name.upper()} Distribution by Vehicle Density')
+        plt.xlabel(f'{metric_name.upper()}')
+        plt.ylabel('Frequency')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.savefig(os.path.join(path,f'{metric_name}_distribution.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+
+    # Boxplots for PRR
+    if 'prr' in metrics:
+        plt.figure()
+        plt.boxplot([metrics['prr'][rho] for rho in sorted(metrics['prr'].keys())],
+                    labels=[f'{rho} vehicles/km' for rho in sorted(metrics['prr'].keys())],
+                    patch_artist=True)
+        plt.title('PRR Distribution by Vehicle Density')
+        plt.ylabel('Packet Reception Ratio (PRR)')
+        plt.xlabel('Vehicle Density')
+        plt.grid(True, alpha=0.3)
+        plt.savefig(os.path.join(path,'prr_boxplot.png'), dpi=300, bbox_inches='tight')
+        plt.close()
 
 def main():
-    # Analyze results
     print("Analyzing NR-V2X simulation results...")
-    results = analyze_nrv2x_results()
-    
-    # Create visualizations
-    print("Creating visualization plots...")
-    plot_results(results)
-    
-    print("\nAnalysis complete! The following files have been generated:")
-    print("- prr_boxplot.png")
-    print("- prr_violin.png")
-    print("- prr_evolution.png")
-    print("- prr_distribution.png")
+    metrics = analyze_nrv2x_results()
+    print("Creating visualizations...")
+    plot_metrics(metrics)
+    print("Analysis complete. Plots have been saved.")
 
 if __name__ == "__main__":
     main()
